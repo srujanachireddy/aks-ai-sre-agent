@@ -52,7 +52,7 @@ variable "openai_model_version" {
 variable "node_size" {
   description = "Standard_B4ms = 4 vCPU, 16 GiB, about $0.17/hour."
   type        = string
-  default     = "Standard_B4ms"
+  default     = "Standard_B4s_v2"
 }
 
 variable "max_nodes" {

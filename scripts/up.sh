@@ -14,7 +14,8 @@ LOCATION="${LOCATION:-eastus2}"
 OPENAI_LOCATION="${OPENAI_LOCATION:-$LOCATION}"
 OPENAI_MODEL="${OPENAI_MODEL:-gpt-4.1-mini}"
 OPENAI_MODEL_VERSION="${OPENAI_MODEL_VERSION:-2025-04-14}"
-export LOCATION OPENAI_LOCATION OPENAI_MODEL OPENAI_MODEL_VERSION
+NODE_SIZE="${NODE_SIZE:-Standard_B4s_v2}"
+export LOCATION OPENAI_LOCATION OPENAI_MODEL OPENAI_MODEL_VERSION NODE_SIZE
 
 # ---------------------------------------------------------------------------
 step "1/9  Your Azure account"
@@ -55,13 +56,20 @@ for ns in "${PROVIDERS[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
-step "4/9  Checking vCPU quota and model availability"
-read -r LIMIT USED < <(az vm list-usage -l "$LOCATION" --query "[?name.value=='standardBSFamily'] | [0].[limit, currentValue]" -o tsv) || true
+step "4/9  Checking the node size, vCPU quota and model availability"
+# Is this VM size offered to THIS subscription in this region? (Some subscriptions are restricted.)
+read -r FAMILY VCPUS RESTRICTED < <(az vm list-skus -l "$LOCATION" --size "$NODE_SIZE" --resource-type virtualMachines \
+  --query "[?name=='$NODE_SIZE'] | [0].[family, capabilities[?name=='vCPUs'].value | [0], length(restrictions)]" -o tsv) || true
+[[ -n "${FAMILY:-}" ]] || fail "VM size $NODE_SIZE does not exist in $LOCATION. Try NODE_SIZE=Standard_D4s_v5 ./scripts/up.sh"
+[[ "${RESTRICTED:-0}" == "0" ]] || fail "VM size $NODE_SIZE is not allowed for your subscription in $LOCATION. Re-run with another size, e.g. NODE_SIZE=Standard_D4s_v5 ./scripts/up.sh"
+ok "$NODE_SIZE is allowed ($VCPUS vCPUs, quota family $FAMILY)"
+
+read -r LIMIT USED < <(az vm list-usage -l "$LOCATION" --query "[?name.value=='$FAMILY'] | [0].[limit, currentValue]" -o tsv) || true
 AVAILABLE=$(( ${LIMIT:-0} - ${USED:-0} ))
-MAX_NODES=$(( AVAILABLE / 4 )) # Standard_B4ms = 4 vCPUs
+MAX_NODES=$(( AVAILABLE / VCPUS ))
 (( MAX_NODES > 3 )) && MAX_NODES=3
-(( MAX_NODES >= 1 )) || fail "Only $AVAILABLE B-series vCPUs free in $LOCATION. Request at least 8 (portal: Quotas -> Compute -> Standard BS Family) or use LOCATION=..."
-(( MAX_NODES >= 2 )) || warn "Quota allows only 1 node. The platform may be short of CPU; request 8+ B-series vCPUs if pods stay Pending."
+(( MAX_NODES >= 1 )) || fail "Only $AVAILABLE vCPUs free for $FAMILY in $LOCATION. Request at least $(( VCPUS * 2 )) (portal: Quotas -> Compute) or choose another NODE_SIZE."
+(( MAX_NODES >= 2 )) || warn "Quota allows only 1 node. The platform may be short of CPU; request more quota for $FAMILY if pods stay Pending."
 export MAX_NODES
 ok "$AVAILABLE vCPUs free -> cluster can grow to $MAX_NODES node(s)"
 

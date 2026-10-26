@@ -40,6 +40,7 @@ openai_location      = "${OPENAI_LOCATION:-${LOCATION:-eastus2}}"
 openai_model         = "${OPENAI_MODEL:-gpt-4.1-mini}"
 openai_model_version = "${OPENAI_MODEL_VERSION:-2025-04-14}"
 max_nodes            = ${MAX_NODES:-2}
+node_size            = "${NODE_SIZE:-Standard_B4s_v2}"
 EOF
 }
 

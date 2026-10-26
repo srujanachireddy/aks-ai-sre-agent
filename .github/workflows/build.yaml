@@ -20,7 +20,7 @@ permissions:
 jobs:
   image:
     name: ${{ matrix.image }}:${{ matrix.tag }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -44,11 +44,11 @@ jobs:
     env:
       IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -56,29 +56,38 @@ jobs:
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ matrix.context }}
           push: true
           tags: ${{ env.IMAGE }}:${{ matrix.tag }}
           build-args: ${{ matrix.build-args }}
 
+      # Trivy is downloaded from its official release and checked against the published checksum,
+      # instead of using a third-party action whose tags can change.
+      - name: Install Trivy (checksum verified)
+        env:
+          TRIVY_VERSION: "0.75.0"
+          TRIVY_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+        run: |
+          curl -sSLo trivy.tar.gz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  trivy.tar.gz" | sha256sum --check
+          tar xzf trivy.tar.gz trivy && sudo mv trivy /usr/local/bin/
+
       - name: Scan for critical vulnerabilities (Trivy)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: "1" # fail here = no signature = Kyverno blocks the image
+        env:
+          REF: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+        # Failing here = no signature = Kyverno will refuse to run the image.
+        run: trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress "$REF"
 
       - name: Generate SBOM (software bill of materials)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
           format: spdx-json
           output-file: sbom.spdx.json
 
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
 
       - name: Sign image and attach SBOM (keyless)
         env:

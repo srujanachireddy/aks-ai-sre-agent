@@ -1,0 +1,5 @@
+apiVersion: v2
+name: sre-agent
+description: The AI SRE agent (Alertmanager webhook, investigations, GitOps pull requests).
+type: application
+version: 0.1.0

@@ -1,0 +1,64 @@
+# kube-prometheus-stack 92.3.0, sized for a small lab cluster.
+
+# AKS runs the control plane for us, and Cilium replaces kube-proxy, so these have nothing to scrape.
+kubeControllerManager: {enabled: false}
+kubeScheduler: {enabled: false}
+kubeEtcd: {enabled: false}
+kubeProxy: {enabled: false}
+
+prometheus:
+  prometheusSpec:
+    retention: 2d
+    # Pick up ServiceMonitors and rules from every namespace (shop, sre-agent, argo-rollouts...).
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    resources:
+      requests: {cpu: 100m, memory: 512Mi}
+      limits: {memory: 1536Mi}
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: "null"
+      group_by: [alertname, namespace, service]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - receiver: "null"
+          matchers: ['alertname="Watchdog"']
+        # Every shop alert goes to the AI agent's webhook.
+        - receiver: sre-agent
+          matchers: ['namespace="shop"']
+    receivers:
+      - name: "null"
+      - name: sre-agent
+        webhook_configs:
+          - url: http://sre-agent.sre-agent.svc:8080/alertmanager
+            send_resolved: false
+
+grafana:
+  persistence:
+    enabled: false
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL # loads any ConfigMap labelled grafana_dashboard=1
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki-gateway.observability.svc.cluster.local
+
+prometheus-node-exporter:
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}

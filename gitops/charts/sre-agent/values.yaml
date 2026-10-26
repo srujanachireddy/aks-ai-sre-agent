@@ -1,0 +1,27 @@
+image:
+  repository: ghcr.io/srujanachireddy/aks-ai-sre-agent/sre-agent
+  tag: "0.1.0"
+
+# Filled in by scripts/up.sh from Terraform outputs (subscription-specific, not secret).
+azure:
+  clientId: ""
+  tenantId: ""
+openai:
+  endpoint: ""
+  deployment: ""
+
+targetNamespace: shop
+gitopsRepo: srujanachireddy/aks-ai-sre-agent
+prometheusUrl: http://monitoring-kube-prometheus-prometheus.observability.svc:9090
+lokiUrl: http://loki-gateway.observability.svc.cluster.local
+
+# Optional Kubernetes Secret with a GitHub token (key: token). Without it, the agent runs in
+# dry-run mode: it still investigates and writes the pull request, but does not send it.
+githubTokenSecret: sre-agent-github
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi

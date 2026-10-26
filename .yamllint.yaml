@@ -1,0 +1,5 @@
+extends: relaxed
+ignore: |
+  gitops/charts/*/templates/
+rules:
+  line-length: disable

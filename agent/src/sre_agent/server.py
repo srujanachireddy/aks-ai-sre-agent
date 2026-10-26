@@ -78,6 +78,9 @@ def create_app(backend: ToolBackend, model_factory, repo: GitHubRepo | None) -> 
         try:
             if repo:
                 text, sha = repo.read_file(values_path(d.service))
+            elif os.getenv("GITOPS_REPO"):
+                # Dry-run: no token, but the repo is public, so guardrails still see the real current values.
+                text, sha = GitHubRepo.read_public(os.environ["GITOPS_REPO"], values_path(d.service)), ""
             else:
                 text, sha = "", ""
             current = current_settings(_safe_yaml(text))
@@ -122,7 +125,7 @@ def create_app(backend: ToolBackend, model_factory, repo: GitHubRepo | None) -> 
                 continue
             alert = Alert(
                 name=labels.get("alertname", "unknown"), service=service,
-                namespace=labels.get("namespace", "demo"), severity=labels.get("severity", "warning"),
+                namespace=labels.get("namespace", "shop"), severity=labels.get("severity", "warning"),
                 summary=a.get("annotations", {}).get("summary", ""), starts_at=a.get("startsAt", ""),
                 fingerprint=fingerprint, labels=labels,
             )
@@ -179,7 +182,7 @@ def main() -> None:
     backend = LiveBackend(
         os.getenv("PROMETHEUS_URL", "http://monitoring-kube-prometheus-prometheus.observability:9090"),
         os.getenv("LOKI_URL", "http://loki-gateway.observability"),
-        os.getenv("TARGET_NAMESPACE", "demo"),
+        os.getenv("TARGET_NAMESPACE", "shop"),
     )
     app = create_app(backend, OpenAIChatModel, GitHubRepo.from_env())
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8080")))

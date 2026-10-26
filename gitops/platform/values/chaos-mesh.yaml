@@ -1,0 +1,10 @@
+# Chaos Mesh 2.8.4. AKS nodes run containerd, not Docker (the chart default).
+chaosDaemon:
+  runtime: containerd
+  socketPath: /run/containerd/containerd.sock
+controllerManager:
+  replicaCount: 1
+dashboard:
+  create: false
+dnsServer:
+  create: false

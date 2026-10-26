@@ -1,0 +1,5 @@
+apiVersion: v2
+name: shop-service
+description: Deploys one demo shop service (or the load generator) as an Argo Rollout with canary analysis.
+type: application
+version: 0.1.0

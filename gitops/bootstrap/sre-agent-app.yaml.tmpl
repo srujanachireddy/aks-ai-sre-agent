@@ -1,0 +1,35 @@
+# Rendered and applied by scripts/up.sh, because it needs values Terraform creates
+# (the agent's identity and the Azure OpenAI endpoint). Those values are not secrets,
+# but they are specific to your subscription, so they are kept out of Git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sre-agent
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/srujanachireddy/aks-ai-sre-agent.git
+    targetRevision: main
+    path: gitops/charts/sre-agent
+    helm:
+      parameters:
+        - name: azure.clientId
+          value: "${AGENT_CLIENT_ID}"
+        - name: azure.tenantId
+          value: "${TENANT_ID}"
+        - name: openai.endpoint
+          value: "${OPENAI_ENDPOINT}"
+        - name: openai.deployment
+          value: "${OPENAI_DEPLOYMENT}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sre-agent
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

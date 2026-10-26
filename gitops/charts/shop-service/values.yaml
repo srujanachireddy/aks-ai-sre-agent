@@ -1,0 +1,35 @@
+# Defaults for every shop service. Each gitops/apps/<service>/values.yaml overrides what it needs.
+# The AI agent's pull requests change exactly three fields: image.tag, autoscaling.maxReplicas
+# (or replicas), and resources.limits.memory.
+
+role: web # web = HTTP service; loadgen = traffic generator (no Service, no probes)
+
+image:
+  repository: ghcr.io/srujanachireddy/aks-ai-sre-agent/shop
+  tag: v1.3.2
+
+replicas: 2 # used only when autoscaling is disabled
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 3
+  targetCPUUtilization: 70
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+env: {} # extra environment variables (failure switches live here)
+
+dependencies: [] # services this one calls; the agent reads them from a Service annotation
+
+canary:
+  steps: true # roll out gradually: 1 pod first, then more
+  analysis: true # Argo Rollouts watches the new pods' error rate and aborts if it is too high
+  maxErrorRate: 0.05
+  prometheusAddress: http://monitoring-kube-prometheus-prometheus.observability.svc:9090

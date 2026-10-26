@@ -30,7 +30,7 @@ class ActionType(str, Enum):
 class Alert(BaseModel):
     name: str
     service: str
-    namespace: str = "demo"
+    namespace: str = "shop"
     severity: str = "warning"
     summary: str = ""
     starts_at: str = ""

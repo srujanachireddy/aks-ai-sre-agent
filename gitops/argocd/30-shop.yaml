@@ -1,0 +1,47 @@
+# One Application per folder in gitops/apps/ (checkout, payments, catalog, loadgen), all from the same chart.
+# Add a folder, get a new service. This is the file the AI agent's pull requests end up changing.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: shop
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/srujanachireddy/aks-ai-sre-agent.git
+        revision: main
+        directories:
+          - path: gitops/apps/*
+  template:
+    metadata:
+      name: "shop-{{.path.basename}}"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/srujanachireddy/aks-ai-sre-agent.git
+        targetRevision: main
+        path: gitops/charts/shop-service
+        helm:
+          releaseName: "{{.path.basename}}"
+          valueFiles:
+            - "../../apps/{{.path.basename}}/values.yaml"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: shop
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 10
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 5m

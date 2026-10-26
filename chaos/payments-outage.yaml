@@ -1,0 +1,18 @@
+# Incident: dependency failure. Every payments pod stops answering (pod-failure swaps the
+# container for a "pause" container). Readiness fails, so Kubernetes stops routing to payments,
+# and checkout's calls fail with connection errors -> checkout returns 502s.
+# Expected alert: ShopErrorBudgetBurn on CHECKOUT. Expected agent answer: dependency_failure ->
+# escalate, naming payments. (Rolling back checkout would not help: its code is fine.)
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: payments-outage
+  namespace: shop
+spec:
+  action: pod-failure
+  mode: all
+  selector:
+    namespaces: [shop]
+    labelSelectors:
+      app.kubernetes.io/name: payments
+  duration: "15m"

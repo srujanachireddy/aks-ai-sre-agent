@@ -1,0 +1,20 @@
+# The one Application created by hand (by scripts/up.sh). It points at gitops/argocd,
+# and every file there is another Application. This is the "app of apps" pattern.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/srujanachireddy/aks-ai-sre-agent.git
+    targetRevision: main
+    path: gitops/argocd
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

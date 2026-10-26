@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sre-agent
+  labels:
+    app.kubernetes.io/name: sre-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sre-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sre-agent
+        azure.workload.identity/use: "true" # injects the federated token the Azure SDK exchanges for an Entra token
+    spec:
+      serviceAccountName: sre-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: TARGET_NAMESPACE
+              value: {{ .Values.targetNamespace | quote }}
+            - name: PROMETHEUS_URL
+              value: {{ .Values.prometheusUrl | quote }}
+            - name: LOKI_URL
+              value: {{ .Values.lokiUrl | quote }}
+            - name: AZURE_OPENAI_ENDPOINT
+              value: {{ .Values.openai.endpoint | quote }}
+            - name: AZURE_OPENAI_DEPLOYMENT
+              value: {{ .Values.openai.deployment | quote }}
+            - name: GITOPS_REPO
+              value: {{ .Values.gitopsRepo | quote }}
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.githubTokenSecret }}
+                  key: token
+                  optional: true # no token = dry-run mode
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sre-agent
+  labels:
+    app.kubernetes.io/name: sre-agent
+spec:
+  selector:
+    app.kubernetes.io/name: sre-agent
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sre-agent
+  labels:
+    app.kubernetes.io/name: sre-agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sre-agent
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

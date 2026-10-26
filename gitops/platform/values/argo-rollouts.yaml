@@ -1,0 +1,11 @@
+# Argo Rollouts 2.43.6
+dashboard:
+  enabled: false
+controller:
+  replicas: 1
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true

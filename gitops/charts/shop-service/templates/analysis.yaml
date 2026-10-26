@@ -1,0 +1,29 @@
+{{- if and (include "shop.isWeb" .) .Values.canary.steps .Values.canary.analysis }}
+# While a canary runs, check the NEW pods' error rate every 30s. One bad reading aborts the
+# rollout and Argo Rollouts sends all traffic back to the old version automatically.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ include "shop.name" . }}-error-rate
+  labels:
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  args:
+    - name: pod-hash
+  metrics:
+    - name: canary-error-rate
+      interval: 30s
+      initialDelay: 30s
+      failureLimit: 1
+      # No traffic yet gives NaN (0/0); that is not a failure.
+      successCondition: "isNaN(result[0]) || result[0] <= {{ .Values.canary.maxErrorRate }}"
+      provider:
+        prometheus:
+          address: {{ .Values.canary.prometheusAddress }}
+          query: |
+            (
+              sum(rate(app_requests_total{namespace="{{ .Release.Namespace }}", service="{{ include "shop.name" . }}", status=~"5..", pod=~"{{ include "shop.name" . }}-{{ "{{args.pod-hash}}" }}-.*"}[1m]))
+              /
+              sum(rate(app_requests_total{namespace="{{ .Release.Namespace }}", service="{{ include "shop.name" . }}", pod=~"{{ include "shop.name" . }}-{{ "{{args.pod-hash}}" }}-.*"}[1m]))
+            ) or vector(0)
+{{- end }}

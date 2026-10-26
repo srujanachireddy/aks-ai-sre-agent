@@ -1,0 +1,17 @@
+# loadgen: fake customers sending orders to checkout all the time.
+role: loadgen
+image:
+  tag: v1.3.2
+autoscaling:
+  enabled: false
+replicas: 1
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+env:
+  TARGET_URL: http://checkout.shop.svc:8080/checkout
+  RPS: "15"

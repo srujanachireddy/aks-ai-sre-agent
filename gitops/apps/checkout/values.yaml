@@ -1,0 +1,20 @@
+# checkout: takes orders, calls catalog for prices and payments to charge.
+image:
+  tag: v1.3.2
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 3
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+dependencies: [payments, catalog]
+env:
+  PAYMENTS_URL: http://payments.shop.svc:8080
+  CATALOG_URL: http://catalog.shop.svc:8080
+canary:
+  analysis: true

@@ -1,0 +1,72 @@
+# Runs on every pull request and push: proves the code, the infrastructure and the
+# Kubernetes config are valid before anything reaches the cluster.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python tests (agent + shop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Agent tests and baseline evaluation
+        working-directory: agent
+        run: |
+          pip install -e ".[dev]"
+          pytest -q
+          sre-agent-evals evals/scenarios
+      - name: Shop tests
+        working-directory: services/shop
+        run: |
+          pip install -e ".[dev]"
+          pytest -q
+
+  terraform:
+    name: Terraform fmt + validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive infra
+      - run: terraform -chdir=infra init -backend=false && terraform -chdir=infra validate
+
+  kubernetes:
+    name: Helm render + schema validation + alert tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Install kubeconform and promtool
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          curl -sSL https://github.com/prometheus/prometheus/releases/download/v3.5.0/prometheus-3.5.0.linux-amd64.tar.gz | tar xz --strip-components=1 --wildcards '*/promtool'
+      - name: Render charts with each service's values
+        run: |
+          mkdir -p rendered
+          for dir in gitops/apps/*/; do
+            svc=$(basename "$dir")
+            helm template "$svc" gitops/charts/shop-service -n shop -f "$dir/values.yaml" > "rendered/$svc.yaml"
+          done
+          helm template sre-agent gitops/charts/sre-agent -n sre-agent \
+            --set azure.clientId=00000000-0000-0000-0000-000000000000 > rendered/sre-agent.yaml
+      - name: Validate against Kubernetes and CRD schemas
+        run: |
+          ./kubeconform -strict -summary -kubernetes-version 1.33.0 \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            rendered gitops/platform/config gitops/argocd gitops/bootstrap/root-app.yaml
+      - name: Unit-test alert rules
+        run: |
+          python3 -c "import yaml; d=yaml.safe_load(open('gitops/platform/config/alerts.yaml')); yaml.safe_dump({'groups': d['spec']['groups']}, open('gitops/platform/tests/rules.yaml','w'))"
+          ./promtool check rules gitops/platform/tests/rules.yaml
+          ./promtool test rules gitops/platform/tests/alerts-test.yaml

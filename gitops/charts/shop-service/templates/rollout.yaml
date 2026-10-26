@@ -1,0 +1,89 @@
+# A Rollout is a Deployment with smarter release strategies (Argo Rollouts).
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ include "shop.name" . }}
+  labels:
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  {{- if not (and .Values.autoscaling.enabled (include "shop.isWeb" .)) }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "shop.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "shop.labels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          {{- if not (include "shop.isWeb" .) }}
+          command: ["shop-loadgen"]
+          {{- end }}
+          env:
+            - name: SERVICE_NAME
+              value: {{ include "shop.name" . | quote }}
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- if include "shop.isWeb" . }}
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+            failureThreshold: 2
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
+  strategy:
+    canary:
+      {{- if and .Values.canary.steps (include "shop.isWeb" .) }}
+      steps:
+        - setWeight: 34 # about 1 pod in 3 runs the new version
+        - pause: {duration: 2m}
+        - setWeight: 67
+        - pause: {duration: 1m}
+      {{- if .Values.canary.analysis }}
+      analysis:
+        templates:
+          - templateName: {{ include "shop.name" . }}-error-rate
+        startingStep: 1 # start watching once the first new pod has traffic
+        args:
+          - name: pod-hash
+            valueFrom:
+              podTemplateHashValue: Latest
+      {{- end }}
+      {{- else }}
+      steps: [] # replace pods straight away
+      {{- end }}

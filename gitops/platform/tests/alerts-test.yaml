@@ -1,0 +1,48 @@
+rule_files: [rules.yaml] # extracted from ../config/alerts.yaml by CI
+evaluation_interval: 1m
+tests:
+  # Bad deploy: checkout fails 23% of requests from minute 0 onward (40 req/s total).
+  - interval: 1m
+    input_series:
+      - series: 'app_requests_total{namespace="shop", service="checkout", status="200"}'
+        values: '0+1848x40'   # 30.8 req/s ok
+      - series: 'app_requests_total{namespace="shop", service="checkout", status="500"}'
+        values: '0+552x40'    # 9.2 req/s failing (23%)
+      - series: 'app_requests_total{namespace="shop", service="payments", status="200"}'
+        values: '0+2400x40'   # healthy
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ShopErrorBudgetBurn
+        exp_alerts: []        # pending: 'for: 2m' not satisfied yet
+      - eval_time: 3m
+        alertname: ShopErrorBudgetBurn
+        exp_alerts:           # fires about 3 minutes after the bad deploy
+          - exp_labels: {severity: critical, namespace: shop, service: checkout}
+            exp_annotations: {summary: "checkout is failing 23% of requests (SLO 99.5%)"}
+      - eval_time: 10m
+        alertname: ShopErrorBudgetBurn
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: shop, service: checkout}
+            exp_annotations: {summary: "checkout is failing 23% of requests (SLO 99.5%)"}
+  # Healthy: 0.2% errors must NOT page anyone.
+  - interval: 1m
+    input_series:
+      - series: 'app_requests_total{namespace="shop", service="checkout", status="200"}'
+        values: '0+2395x40'
+      - series: 'app_requests_total{namespace="shop", service="checkout", status="500"}'
+        values: '0+5x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ShopErrorBudgetBurn
+        exp_alerts: []
+  # OOM loop: catalog restarts 4 times in 15 minutes.
+  - interval: 1m
+    input_series:
+      - series: 'kube_pod_container_status_restarts_total{namespace="shop", pod="catalog-6d9c7b-x2k4p", container="app"}'
+        values: '0 0 1 1 1 2 2 2 3 3 3 4 4 4 4 4'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ShopPodsRestarting
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: shop, service: catalog}
+            exp_annotations: {summary: "catalog containers restarted 4 times in 15 minutes"}

@@ -1,0 +1,21 @@
+# Incident: memory exhaustion on catalog.
+# stress-ng runs inside catalog's containers and holds 400 MB. The limit is 256 Mi, so the
+# kernel kills the container (OOMKilled), Kubernetes restarts it, and it happens again.
+# Expected alert: ShopPodsRestarting (catalog). Expected agent answer: memory_exhaustion -> increase_memory.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: catalog-memory-leak
+  namespace: shop
+spec:
+  mode: all
+  selector:
+    namespaces: [shop]
+    labelSelectors:
+      app.kubernetes.io/name: catalog
+  containerNames: [app]
+  stressors:
+    memory:
+      workers: 1
+      size: "400MB"
+  duration: "15m"

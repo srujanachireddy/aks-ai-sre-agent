@@ -1,0 +1,14 @@
+# Kyverno 3.9.1 (Kyverno 1.19), one replica of each controller for the lab.
+admissionController:
+  replicas: 1
+  container:
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+backgroundController:
+  enabled: false # we only need admission checks
+cleanupController:
+  enabled: false
+reportsController:
+  enabled: true
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}

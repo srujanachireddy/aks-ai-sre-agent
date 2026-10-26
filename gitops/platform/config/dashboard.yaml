@@ -1,0 +1,42 @@
+# Grafana loads this automatically (sidecar watches ConfigMaps labelled grafana_dashboard=1).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shop-dashboard
+  namespace: observability
+  labels:
+    grafana_dashboard: '1'
+data:
+  shop-slo.json: "{\n  \"uid\": \"shop-slo\",\n  \"title\": \"Shop SLOs and AI agent\",\n  \"timezone\": \"browser\",\n  \"schemaVersion\": 39,\n  \"refresh\": \"30s\",\n  \"time\": {\n    \"from\": \"\
+    now-1h\",\n    \"to\": \"now\"\n  },\n  \"panels\": [\n    {\n      \"id\": 1,\n      \"type\": \"timeseries\",\n      \"title\": \"Requests per second\",\n      \"gridPos\": {\n        \"x\": 0,\n\
+    \        \"y\": 0,\n        \"w\": 12,\n        \"h\": 8\n      },\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n      \"fieldConfig\": {\n\
+    \        \"defaults\": {\n          \"unit\": \"reqps\"\n        },\n        \"overrides\": []\n      },\n      \"options\": {\n        \"legend\": {\n          \"displayMode\": \"list\",\n        \
+    \  \"placement\": \"bottom\"\n        }\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"sum by (service) (rate(app_requests_total{namespace=\\\"shop\\\"\
+    }[1m]))\",\n          \"legendFormat\": \"{{service}}\"\n        }\n      ]\n    },\n    {\n      \"id\": 2,\n      \"type\": \"timeseries\",\n      \"title\": \"Error ratio (5xx) vs SLO budget burn\
+    \ threshold\",\n      \"gridPos\": {\n        \"x\": 12,\n        \"y\": 0,\n        \"w\": 12,\n        \"h\": 8\n      },\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\"\
+    : \"prometheus\"\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"percentunit\"\n        },\n        \"overrides\": []\n      },\n      \"options\": {\n        \"\
+    legend\": {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\"\n        }\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"sum by\
+    \ (service) (rate(app_requests_total{namespace=\\\"shop\\\",status=~\\\"5..\\\"}[1m])) / sum by (service) (rate(app_requests_total{namespace=\\\"shop\\\"}[1m]))\",\n          \"legendFormat\": \"{{service}}\"\
+    \n        },\n        {\n          \"refId\": \"B\",\n          \"expr\": \"vector(0.03)\",\n          \"legendFormat\": \"alert threshold (6x burn)\"\n        }\n      ]\n    },\n    {\n      \"id\"\
+    : 3,\n      \"type\": \"timeseries\",\n      \"title\": \"p99 latency\",\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\": 8,\n        \"w\": 12,\n        \"h\": 8\n      },\n      \"datasource\"\
+    : {\n        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"s\"\n        },\n        \"overrides\": []\n\
+    \      },\n      \"options\": {\n        \"legend\": {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\"\n        }\n      },\n      \"targets\": [\n        {\n          \"\
+    refId\": \"A\",\n          \"expr\": \"histogram_quantile(0.99, sum by (le, service) (rate(app_request_duration_seconds_bucket{namespace=\\\"shop\\\"}[1m])))\",\n          \"legendFormat\": \"{{service}}\"\
+    \n        },\n        {\n          \"refId\": \"B\",\n          \"expr\": \"vector(0.5)\",\n          \"legendFormat\": \"target 500ms\"\n        }\n      ]\n    },\n    {\n      \"id\": 4,\n      \"\
+    type\": \"timeseries\",\n      \"title\": \"Memory used / limit\",\n      \"gridPos\": {\n        \"x\": 12,\n        \"y\": 8,\n        \"w\": 12,\n        \"h\": 8\n      },\n      \"datasource\"\
+    : {\n        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"percentunit\"\n        },\n        \"overrides\"\
+    : []\n      },\n      \"options\": {\n        \"legend\": {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\"\n        }\n      },\n      \"targets\": [\n        {\n       \
+    \   \"refId\": \"A\",\n          \"expr\": \"max by (pod) (container_memory_working_set_bytes{namespace=\\\"shop\\\",container=\\\"app\\\"} / on (pod, container) group_left kube_pod_container_resource_limits{namespace=\\\
+    \"shop\\\",resource=\\\"memory\\\"})\",\n          \"legendFormat\": \"{{pod}}\"\n        }\n      ]\n    },\n    {\n      \"id\": 5,\n      \"type\": \"timeseries\",\n      \"title\": \"AI agent investigations\"\
+    ,\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\": 16,\n        \"w\": 12,\n        \"h\": 8\n      },\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\
+    \n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"short\"\n        },\n        \"overrides\": []\n      },\n      \"options\": {\n        \"legend\": {\n         \
+    \ \"displayMode\": \"list\",\n          \"placement\": \"bottom\"\n        }\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"sum by (category, action,\
+    \ pr) (increase(sre_agent_investigations_total[1h]))\",\n          \"legendFormat\": \"{{category}} -> {{action}} (PR: {{pr}})\"\n        }\n      ]\n    },\n    {\n      \"id\": 6,\n      \"type\"\
+    : \"timeseries\",\n      \"title\": \"Running version per service\",\n      \"gridPos\": {\n        \"x\": 12,\n        \"y\": 16,\n        \"w\": 12,\n        \"h\": 8\n      },\n      \"datasource\"\
+    : {\n        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"short\"\n        },\n        \"overrides\"\
+    : []\n      },\n      \"options\": {\n        \"legend\": {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\"\n        }\n      },\n      \"targets\": [\n        {\n       \
+    \   \"refId\": \"A\",\n          \"expr\": \"sum by (service, version) (app_info{namespace=\\\"shop\\\"})\",\n          \"legendFormat\": \"{{service}} {{version}}\"\n        }\n      ]\n    },\n  \
+    \  {\n      \"id\": 7,\n      \"type\": \"logs\",\n      \"title\": \"Shop error logs (Loki)\",\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\": 24,\n        \"w\": 24,\n        \"h\": 9\n \
+    \     },\n      \"datasource\": {\n        \"type\": \"loki\",\n        \"uid\": \"loki\"\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"{namespace=\\\
+    \"shop\\\"} |= \\\"ERROR\\\"\"\n        }\n      ],\n      \"options\": {\n        \"showTime\": true,\n        \"wrapLogMessage\": true\n      }\n    }\n  ],\n  \"tags\": [\n    \"shop\",\n    \"slo\"\
+    \n  ]\n}"

@@ -1,0 +1,34 @@
+# Argo CD (chart argo-cd 10.10.3), installed once by scripts/up.sh. Everything else is installed BY Argo CD.
+dex:
+  enabled: false # no SSO for the lab; you log in as admin
+notifications:
+  enabled: false
+configs:
+  cm:
+    # Let the parent "root" app wait for child apps to be healthy, so sync waves run in order.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+      return hs
+controller:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+server:
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+repoServer:
+  resources:
+    requests: {cpu: 20m, memory: 128Mi}
+applicationSet:
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+redis:
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}

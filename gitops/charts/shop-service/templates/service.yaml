@@ -1,0 +1,48 @@
+{{- if include "shop.isWeb" . }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "shop.name" . }}
+  labels:
+    {{- include "shop.labels" . | nindent 4 }}
+  annotations:
+    # The agent's get_dependencies tool reads this.
+    sre-agent.io/dependencies: {{ join "," .Values.dependencies | quote }}
+spec:
+  selector:
+    {{- include "shop.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# Tells Prometheus to scrape /metrics from every pod behind this Service.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "shop.name" . }}
+  labels:
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "shop.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      honorLabels: true # keep the app's own "service" label
+---
+# During node upgrades, never take more than one pod away at a time.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "shop.name" . }}
+  labels:
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "shop.selectorLabels" . | nindent 6 }}
+{{- end }}

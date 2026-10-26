@@ -1,0 +1,39 @@
+# Argo Rollouts: canary releases with automatic rollback based on Prometheus metrics.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-rollouts
+      targetRevision: 2.43.6
+      helm:
+        releaseName: argo-rollouts
+        valueFiles:
+          - $values/gitops/platform/values/argo-rollouts.yaml
+    - repoURL: https://github.com/srujanachireddy/aks-ai-sre-agent.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true # large CRDs exceed the client-side apply annotation limit
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

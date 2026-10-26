@@ -1,0 +1,30 @@
+# Our own platform settings: namespaces, alert rules, the Grafana dashboard and the image-signing policy.
+# Wave 1: runs after the tools in wave 0 exist (it uses their CRDs).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/srujanachireddy/aks-ai-sre-agent.git
+    targetRevision: main
+    path: gitops/platform/config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

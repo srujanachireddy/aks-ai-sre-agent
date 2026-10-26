@@ -1,0 +1,40 @@
+# Supply-chain security: only images built AND signed by this repo's GitHub Actions workflow
+# may run in the shop and sre-agent namespaces.
+#
+# How it works: the build workflow signs each image with Cosign "keyless" signing. GitHub gives the
+# workflow a short-lived identity token, Sigstore issues a certificate for that identity, and the
+# signature is recorded in a public transparency log. Kyverno checks that certificate's identity here.
+# No signing keys exist anywhere, so there is nothing to leak or rotate.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: require-signed-images
+spec:
+  validationActions: [Deny]
+  webhookConfiguration:
+    timeoutSeconds: 15
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: [shop, sre-agent]
+  matchImageReferences:
+    - glob: "ghcr.io/srujanachireddy/aks-ai-sre-agent/*"
+  attestors:
+    - name: github
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subject: https://github.com/srujanachireddy/aks-ai-sre-agent/.github/workflows/build.yaml@refs/heads/main
+  validations:
+    - expression: >-
+        images.containers.map(image, verifyImageSignatures(image, [attestors.github])).all(e, e > 0)
+      message: >-
+        Image is not signed by the aks-ai-sre-agent build workflow. Only images built and signed by CI may run here.

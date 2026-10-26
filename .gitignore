@@ -8,3 +8,8 @@ __pycache__/
 *.tfvars
 backend.hcl
 !*.example
+gitops/platform/tests/rules.yaml
+rendered/
+.terraform.lock.hcl
+.DS_Store
+build/

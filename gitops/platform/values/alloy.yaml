@@ -1,0 +1,46 @@
+# Grafana Alloy 1.13.1: reads pod logs through the Kubernetes API and sends them to Loki.
+# One replica is enough for a small cluster. Larger clusters run it as a DaemonSet.
+controller:
+  type: deployment
+  replicas: 1
+
+alloy:
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+  configMap:
+    content: |
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      // Turn Kubernetes metadata into labels you can filter on: {namespace="shop", app="checkout"}
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "app"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki-gateway.observability.svc.cluster.local/loki/api/v1/push"
+        }
+      }

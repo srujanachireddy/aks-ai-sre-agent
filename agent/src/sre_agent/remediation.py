@@ -35,7 +35,37 @@ def current_settings(values: dict) -> dict:
     mem = str(values.get("resources", {}).get("limits", {}).get("memory", "0Mi"))
     match = re.match(r"^(\d+)(Mi|Gi)$", mem)
     mem_mi = int(match.group(1)) * (1024 if match and match.group(2) == "Gi" else 1) if match else 0
-    return {"image_tag": values.get("image", {}).get("tag"), "replicas": values.get("replicas", 1), "memory_limit_mi": mem_mi}
+    autoscaling = values.get("autoscaling", {}) or {}
+    # With an HPA, "capacity" means the ceiling the autoscaler may reach.
+    replicas = autoscaling.get("maxReplicas", 1) if autoscaling.get("enabled") else values.get("replicas", 1)
+    return {"image_tag": values.get("image", {}).get("tag"), "replicas": replicas, "memory_limit_mi": mem_mi}
+
+
+def set_yaml_value(text: str, path: list[str], value: str) -> str:
+    """Change one scalar in block-style YAML, keeping every comment and all other lines as they are.
+
+    A reviewer then sees a one-line diff instead of a reformatted file.
+    Raises KeyError if the path does not exist.
+    """
+    lines = text.splitlines(keepends=True)
+    depth, parent_indent = 0, -1
+    for i, line in enumerate(lines):
+        stripped = line.lstrip(" ")
+        if not stripped.strip() or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(stripped)
+        if indent <= parent_indent:  # left the block we were searching in
+            break
+        m = re.match(r"^([A-Za-z0-9_.\-]+):(\s*)(.*?)(\s+#.*)?$", stripped.rstrip("\n"))
+        if not m or m.group(1) != path[depth]:
+            continue
+        if depth == len(path) - 1:
+            comment = m.group(4) or ""
+            newline = "\n" if line.endswith("\n") else ""
+            lines[i] = f"{' ' * indent}{path[depth]}: {value}{comment}{newline}"
+            return "".join(lines)
+        depth, parent_indent = depth + 1, indent
+    raise KeyError(".".join(path))
 
 
 def apply_action(values_text: str, result: GuardrailResult) -> str:
@@ -43,12 +73,25 @@ def apply_action(values_text: str, result: GuardrailResult) -> str:
     values = yaml.safe_load(values_text) or {}
     a = result.action
     if a.type == ActionType.ROLLBACK:
-        values.setdefault("image", {})["tag"] = a.target_image_tag
+        target, new = ["image", "tag"], str(a.target_image_tag)
     elif a.type == ActionType.SCALE:
-        values["replicas"] = a.replicas
+        if (values.get("autoscaling") or {}).get("enabled"):
+            target, new = ["autoscaling", "maxReplicas"], str(a.replicas)
+        else:
+            target, new = ["replicas"], str(a.replicas)
     elif a.type == ActionType.INCREASE_MEMORY:
-        values.setdefault("resources", {}).setdefault("limits", {})["memory"] = f"{a.memory_limit_mi}Mi"
-    return yaml.safe_dump(values, sort_keys=False)
+        target, new = ["resources", "limits", "memory"], f"{a.memory_limit_mi}Mi"
+    else:
+        return values_text
+    try:
+        return set_yaml_value(values_text, target, new)
+    except KeyError:
+        # Field not present yet: fall back to a full rewrite (comments are lost, the change is still correct).
+        node = values
+        for key in target[:-1]:
+            node = node.setdefault(key, {})
+        node[target[-1]] = yaml.safe_load(new)
+        return yaml.safe_dump(values, sort_keys=False)
 
 
 def pr_body(inv: Investigation, result: GuardrailResult) -> str:
@@ -95,6 +138,13 @@ class GitHubRepo:
             return None
         owner, repo = slug.split("/", 1)
         return cls(owner, repo, token, base=os.getenv("GITOPS_BASE_BRANCH", "main"))
+
+    @staticmethod
+    def read_public(slug: str, path: str, branch: str = "main") -> str:
+        """Read a file from a public repo without a token (used in dry-run mode)."""
+        r = httpx.get(f"https://raw.githubusercontent.com/{slug}/{branch}/{path}", timeout=10)
+        r.raise_for_status()
+        return r.text
 
     def _client(self) -> httpx.Client:
         return httpx.Client(base_url=f"{self.api}/repos/{self.owner}/{self.repo}", timeout=20,

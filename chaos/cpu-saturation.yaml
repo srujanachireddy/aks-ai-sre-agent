@@ -1,0 +1,21 @@
+# Incident: capacity. Two busy CPU workers in every checkout container eat the whole 250m CPU
+# limit, so real requests queue and p99 latency climbs. The HPA scales checkout to its maximum
+# (3) and still cannot keep up.
+# Expected alert: ShopLatencyHigh (checkout). Expected agent answer: capacity -> scale (raise maxReplicas).
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: checkout-cpu-saturation
+  namespace: shop
+spec:
+  mode: all
+  selector:
+    namespaces: [shop]
+    labelSelectors:
+      app.kubernetes.io/name: checkout
+  containerNames: [app]
+  stressors:
+    cpu:
+      workers: 2
+      load: 100
+  duration: "15m"

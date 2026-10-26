@@ -1,0 +1,55 @@
+# SLO alerts for the shop. Prometheus evaluates them; Alertmanager sends them to the AI agent.
+#
+# SLO: 99.5% of requests succeed  ->  error budget = 0.5%
+# "Burn rate" = how fast we are using that budget. 6x means the month's budget would be gone in ~5 days.
+# Two windows (5m AND 30m) must both be over the threshold: fast to fire, but not on a 1-minute blip.
+# (Google's SRE workbook uses 1h/6h windows; these are shortened so the demo fires within minutes.)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: shop-slo
+  namespace: observability
+spec:
+  groups:
+    - name: shop-slo-recording
+      rules:
+        - record: shop:error_ratio:rate5m
+          expr: |
+            sum by (namespace, service) (rate(app_requests_total{namespace="shop", status=~"5.."}[5m]))
+              / sum by (namespace, service) (rate(app_requests_total{namespace="shop"}[5m]))
+        - record: shop:error_ratio:rate30m
+          expr: |
+            sum by (namespace, service) (rate(app_requests_total{namespace="shop", status=~"5.."}[30m]))
+              / sum by (namespace, service) (rate(app_requests_total{namespace="shop"}[30m]))
+
+    - name: shop-slo-alerts
+      rules:
+        - alert: ShopErrorBudgetBurn
+          expr: shop:error_ratio:rate5m > (6 * 0.005) and shop:error_ratio:rate30m > (6 * 0.005)
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.service }} is failing {{ $value | humanizePercentage }} of requests (SLO 99.5%)"
+
+        - alert: ShopLatencyHigh
+          expr: |
+            histogram_quantile(0.99, sum by (le, namespace, service) (
+              rate(app_request_duration_seconds_bucket{namespace="shop"}[5m]))) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.service }} p99 latency is {{ $value | humanizeDuration }} (target 500ms)"
+
+        - alert: ShopPodsRestarting
+          expr: |
+            sum by (namespace, service) (
+              label_replace(
+                increase(kube_pod_container_status_restarts_total{namespace="shop"}[15m]),
+                "service", "$1", "pod", "(checkout|payments|catalog)-.*")
+            ) > 2
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.service }} containers restarted {{ $value | humanize }} times in 15 minutes"

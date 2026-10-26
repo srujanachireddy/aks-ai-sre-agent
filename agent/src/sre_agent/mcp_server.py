@@ -6,7 +6,7 @@ your own agent. Every tool is marked read-only.
   sre-agent-mcp                         # stdio, for local clients
   sre-agent-mcp --http --port 8765      # streamable HTTP, for in-cluster clients
 
-Environment: PROMETHEUS_URL, LOKI_URL, TARGET_NAMESPACE (default "demo").
+Environment: PROMETHEUS_URL, LOKI_URL, TARGET_NAMESPACE (default "shop").
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def main() -> None:
     backend = LiveBackend(
         os.getenv("PROMETHEUS_URL", "http://monitoring-kube-prometheus-prometheus.observability:9090"),
         os.getenv("LOKI_URL", "http://loki-gateway.observability"),
-        os.getenv("TARGET_NAMESPACE", "demo"),
+        os.getenv("TARGET_NAMESPACE", "shop"),
     )
     server = build_server(backend)
     if args.http:

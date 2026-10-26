@@ -162,7 +162,7 @@ class LiveBackend:
     kube-state-metrics, which kube-prometheus-stack installs.
     """
 
-    def __init__(self, prometheus_url: str, loki_url: str, namespace: str = "demo", timeout: float = 10.0):
+    def __init__(self, prometheus_url: str, loki_url: str, namespace: str = "shop", timeout: float = 10.0):
         self.prom = prometheus_url.rstrip("/")
         self.loki = loki_url.rstrip("/")
         self.namespace = namespace
@@ -205,6 +205,10 @@ class LiveBackend:
             self._k8s = client
         return self._k8s
 
+    def _ready_pods_query(self, service: str) -> str:
+        # Pod-level readiness works for Argo Rollouts as well as Deployments.
+        return f'sum(kube_pod_status_ready{{namespace="{self.namespace}", pod=~"{service}-.*", condition="true"}})'
+
     # -- tools
     def get_service_metrics(self, service: str, minutes: int = 30) -> str:
         ns, w = self.namespace, "5m"
@@ -221,7 +225,7 @@ class LiveBackend:
         }
         for label, q in queries.items():
             lines.append(f"- {label}: {self._trend(q, minutes)}")
-        ready = self._scalar(f'sum(kube_deployment_status_replicas_available{{namespace="{ns}", deployment="{service}"}})')
+        ready = self._scalar(self._ready_pods_query(service))
         hpa_max = self._scalar(f'max(kube_horizontalpodautoscaler_spec_max_replicas{{namespace="{ns}", horizontalpodautoscaler="{service}"}})')
         lines.append(f"- replicas available: {ready if ready is not None else 'n/a'}, HPA max: {hpa_max if hpa_max is not None else 'no HPA'}")
         return "\n".join(lines)
@@ -277,14 +281,14 @@ class LiveBackend:
         )
 
     def get_dependencies(self, service: str) -> str:
-        apps = self._kube().AppsV1Api()
-        dep = apps.read_namespaced_deployment(service, self.namespace)
-        deps = (dep.metadata.annotations or {}).get("sre-agent.io/dependencies", "")
+        v1 = self._kube().CoreV1Api()
+        svc = v1.read_namespaced_service(service, self.namespace)
+        deps = (svc.metadata.annotations or {}).get("sre-agent.io/dependencies", "")
         if not deps:
-            return f"{service} declares no dependencies (annotation sre-agent.io/dependencies)."
+            return f"{service} declares no dependencies (Service annotation sre-agent.io/dependencies)."
         lines = []
         for d in [x.strip() for x in deps.split(",") if x.strip()]:
-            ready = self._scalar(f'sum(kube_deployment_status_replicas_available{{namespace="{self.namespace}", deployment="{d}"}})')
+            ready = self._scalar(self._ready_pods_query(d))
             err = self._scalar(f'sum(rate(app_requests_total{{service="{d}",status=~"5.."}}[5m])) / sum(rate(app_requests_total{{service="{d}"}}[5m]))')
             lines.append(f"- {d}: ready pods {ready if ready is not None else 'n/a'}, error rate {f'{err:.1%}' if err is not None else 'n/a'}")
         return "\n".join(lines)

@@ -1,0 +1,39 @@
+name: capacity
+description: Traffic quadruples (marketing campaign). checkout's CPU is pinned at its limit and the HPA is already at max.
+alert:
+  name: CheckoutLatencyHigh
+  service: checkout
+  namespace: demo
+  severity: warning
+  summary: checkout p99 latency 2.4s (SLO 500ms)
+  starts_at: "2026-10-26T18:10:00Z"
+current: {image_tag: v1.3.2, replicas: 3, memory_limit_mi: 256}
+expected:
+  category: capacity
+  action: scale
+responses:
+  get_service_metrics:
+    checkout: |
+      Service checkout, last 30 minutes (values: start -> middle -> now)
+      - request rate (req/s): 17:50 40.5 -> 18:05 118.0 -> 18:20 171.3
+      - error rate (5xx share): 17:50 0.001 -> 18:05 0.004 -> 18:20 0.012
+      - p99 latency (s): 17:50 0.19 -> 18:05 0.95 -> 18:20 2.4
+      - CPU used / limit: 17:50 0.33 -> 18:05 0.88 -> 18:20 0.99
+      - memory used / limit: 17:50 0.40 -> 18:05 0.46 -> 18:20 0.48
+      - container restarts: 17:50 0 -> 18:05 0 -> 18:20 0
+      - replicas available: 3, HPA max: 3
+  get_recent_logs:
+    checkout: |
+      [x38] WARNING checkout: request queue depth 64, shedding load
+      [x12] ERROR checkout: upstream request timeout after 2000ms (client side)
+  get_kubernetes_events:
+    demo: |
+      18:12 HorizontalPodAutoscaler/checkout ScalingLimited (x9): the desired replica count is more than the maximum replica count
+  get_deploy_history:
+    checkout: |
+      revision 6: tag v1.3.2, rolled out 2026-10-21 10:15 UTC (7685 min ago), ready pods 3
+      revision 5: tag v1.3.1, rolled out 2026-10-14 16:40 UTC (17790 min ago), ready pods 0
+  get_dependencies:
+    checkout: |
+      - payments: ready pods 3, error rate 0.2%
+      - catalog: ready pods 2, error rate 0.0%

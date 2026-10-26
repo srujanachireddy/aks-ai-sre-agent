@@ -1,0 +1,40 @@
+name: memory_exhaustion
+description: catalog's cache grows with traffic until it hits the 256Mi limit and gets OOMKilled. No recent deploy.
+alert:
+  name: CatalogPodsRestarting
+  service: catalog
+  namespace: demo
+  severity: warning
+  summary: catalog containers restarted 7 times in 30 minutes
+  starts_at: "2026-10-26T09:20:00Z"
+current: {image_tag: v2.0.5, replicas: 2, memory_limit_mi: 256}
+expected:
+  category: memory_exhaustion
+  action: increase_memory
+responses:
+  get_service_metrics:
+    catalog: |
+      Service catalog, last 30 minutes (values: start -> middle -> now)
+      - request rate (req/s): 09:00 22.0 -> 09:15 23.1 -> 09:30 22.7
+      - error rate (5xx share): 09:00 0.001 -> 09:15 0.04 -> 09:30 0.06
+      - p99 latency (s): 09:00 0.09 -> 09:15 0.85 -> 09:30 1.1
+      - CPU used / limit: 09:00 0.22 -> 09:15 0.25 -> 09:30 0.24
+      - memory used / limit: 09:00 0.81 -> 09:15 0.97 -> 09:30 0.99
+      - container restarts: 09:00 1 -> 09:15 4 -> 09:30 8
+      - replicas available: 1, HPA max: no HPA
+  get_recent_logs:
+    catalog: |
+      [x7] ERROR catalog: worker exited unexpectedly (signal 9)
+      [x2] WARNING catalog.cache: product cache size 212MB, eviction disabled
+  get_kubernetes_events:
+    demo: |
+      09:29 Pod/catalog-6d9c7b-x2k4p BackOff (x5): Back-off restarting failed container catalog
+      09:28 Pod/catalog-6d9c7b-x2k4p OOMKilling (x4): Memory cgroup out of memory: Killed process 1 (python) total-vm:412MB
+      09:21 Pod/catalog-6d9c7b-q8w1m OOMKilling (x3): Memory cgroup out of memory: Killed process 1 (python)
+  get_deploy_history:
+    catalog: |
+      revision 12: tag v2.0.5, rolled out 2026-10-20 08:00 UTC (8730 min ago), ready pods 1
+      revision 11: tag v2.0.4, rolled out 2026-10-13 12:30 UTC (18620 min ago), ready pods 0
+  get_dependencies:
+    catalog: |
+      catalog declares no dependencies (annotation selfheal.io/dependencies).

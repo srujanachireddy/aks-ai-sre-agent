@@ -1,0 +1,42 @@
+name: misleading_deploy
+description: >
+  A harmless checkout deploy (log format change) went out 6 minutes ago, but errors started 20 minutes
+  ago when payments began failing. Rolling back checkout would not help. Tests cause vs. coincidence.
+alert:
+  name: CheckoutErrorBudgetBurn
+  service: checkout
+  namespace: demo
+  severity: critical
+  summary: checkout 5xx ratio 18%, fast burn rate 36x
+  starts_at: "2026-10-26T15:52:00Z"
+current: {image_tag: v1.3.3, replicas: 3, memory_limit_mi: 256}
+expected:
+  category: dependency_failure
+  action: escalate
+responses:
+  get_service_metrics:
+    checkout: |
+      Service checkout, last 30 minutes (values: start -> middle -> now)
+      - request rate (req/s): 15:42 40.1 -> 15:57 39.8 -> 16:12 40.4
+      - error rate (5xx share): 15:42 0.002 -> 15:57 0.17 -> 16:12 0.18
+      - p99 latency (s): 15:42 0.19 -> 15:57 2.9 -> 16:12 3.0
+      - CPU used / limit: 15:42 0.31 -> 15:57 0.22 -> 16:12 0.23
+      - memory used / limit: 15:42 0.42 -> 15:57 0.41 -> 16:12 0.42
+      - container restarts: 15:42 0 -> 15:57 0 -> 16:12 0
+      - replicas available: 3, HPA max: 6
+  get_recent_logs:
+    checkout: |
+      [x203] ERROR checkout.payments_client: POST http://payments.demo.svc:8080/charge failed: upstream connect error or disconnect/reset before headers
+      [x40] ERROR checkout: payment step failed, returning 502
+  get_kubernetes_events:
+    demo: |
+      15:51 Pod/payments-5c8d7f-m3n4b Unhealthy (x22): Liveness probe failed: HTTP probe failed with statuscode: 500
+      15:50 Pod/payments-5c8d7f-m3n4b BackOff (x6): Back-off restarting failed container payments
+  get_deploy_history:
+    checkout: |
+      revision 8: tag v1.3.3, rolled out 2026-10-26 16:06 UTC (6 min ago), ready pods 3
+      revision 7: tag v1.3.2, rolled out 2026-10-21 10:15 UTC (7311 min ago), ready pods 0
+  get_dependencies:
+    checkout: |
+      - payments: ready pods 1, error rate 61.0%
+      - catalog: ready pods 2, error rate 0.0%

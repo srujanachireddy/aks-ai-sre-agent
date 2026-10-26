@@ -1,0 +1,40 @@
+name: dependency_failure
+description: payments is crash-looping (bad config secret). checkout's own code is fine; its errors are connection failures to payments.
+alert:
+  name: CheckoutErrorBudgetBurn
+  service: checkout
+  namespace: demo
+  severity: critical
+  summary: checkout 5xx ratio 22%, fast burn rate 44x
+  starts_at: "2026-10-26T11:32:00Z"
+current: {image_tag: v1.3.2, replicas: 3, memory_limit_mi: 256}
+expected:
+  category: dependency_failure
+  action: escalate
+responses:
+  get_service_metrics:
+    checkout: |
+      Service checkout, last 30 minutes (values: start -> middle -> now)
+      - request rate (req/s): 11:10 39.0 -> 11:25 40.2 -> 11:40 38.7
+      - error rate (5xx share): 11:10 0.002 -> 11:25 0.003 -> 11:40 0.22
+      - p99 latency (s): 11:10 0.2 -> 11:25 0.2 -> 11:40 3.1
+      - CPU used / limit: 11:10 0.30 -> 11:25 0.29 -> 11:40 0.21
+      - memory used / limit: 11:10 0.41 -> 11:25 0.41 -> 11:40 0.40
+      - container restarts: 11:10 0 -> 11:25 0 -> 11:40 0
+      - replicas available: 3, HPA max: 6
+  get_recent_logs:
+    checkout: |
+      [x287] ERROR checkout.payments_client: POST http://payments.demo.svc:8080/charge failed: dial tcp 172.16.41.9:8080: connect: connection refused
+      [x51] ERROR checkout: payment step failed, returning 502
+  get_kubernetes_events:
+    demo: |
+      11:39 Pod/payments-7f6b9d-k2l9z BackOff (x14): Back-off restarting failed container payments
+      11:31 Pod/payments-7f6b9d-p0q3x Unhealthy (x9): Readiness probe failed: connection refused
+  get_deploy_history:
+    checkout: |
+      revision 6: tag v1.3.2, rolled out 2026-10-21 10:15 UTC (7280 min ago), ready pods 3
+      revision 5: tag v1.3.1, rolled out 2026-10-14 16:40 UTC (17385 min ago), ready pods 0
+  get_dependencies:
+    checkout: |
+      - payments: ready pods 0, error rate n/a
+      - catalog: ready pods 2, error rate 0.0%

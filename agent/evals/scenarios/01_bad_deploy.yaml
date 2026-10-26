@@ -1,0 +1,43 @@
+name: bad_deploy
+description: v1.4.0 of checkout throws KeyError on a new code path; errors start right after the rollout.
+alert:
+  name: CheckoutErrorBudgetBurn
+  service: checkout
+  namespace: demo
+  severity: critical
+  summary: checkout 5xx ratio 31% (SLO 99.5%), fast burn rate 62x
+  starts_at: "2026-10-26T14:04:00Z"
+current: {image_tag: v1.4.0, replicas: 3, memory_limit_mi: 256}
+expected:
+  category: bad_deploy
+  action: rollback
+  target_image_tag: v1.3.2
+responses:
+  get_service_metrics:
+    checkout: |
+      Service checkout, last 30 minutes (values: start -> middle -> now)
+      - request rate (req/s): 13:40 41.2 -> 13:55 40.8 -> 14:10 42.0
+      - error rate (5xx share): 13:40 0.002 -> 13:55 0.002 -> 14:10 0.31
+      - p99 latency (s): 13:40 0.18 -> 13:55 0.19 -> 14:10 0.22
+      - CPU used / limit: 13:40 0.31 -> 13:55 0.30 -> 14:10 0.34
+      - memory used / limit: 13:40 0.42 -> 13:55 0.41 -> 14:10 0.43
+      - container restarts: 13:40 0 -> 13:55 0 -> 14:10 0
+      - replicas available: 3, HPA max: 6
+  get_recent_logs:
+    checkout: |
+      [x412] ERROR checkout.pricing: unhandled exception in POST /checkout
+      [x412] Traceback (most recent call last): File "/app/pricing.py", line 88, in apply_discount: rate = rates[cart["currency"]]
+      [x412] KeyError: 'currency'
+      [x3] WARNING checkout.cache: cache miss ratio above 20%
+  get_kubernetes_events:
+    demo: |
+      No warning events in demo.
+  get_deploy_history:
+    checkout: |
+      revision 7: tag v1.4.0, rolled out 2026-10-26 14:01 UTC (9 min ago), ready pods 3
+      revision 6: tag v1.3.2, rolled out 2026-10-21 10:15 UTC (7268 min ago), ready pods 0
+      revision 5: tag v1.3.1, rolled out 2026-10-14 16:40 UTC (17370 min ago), ready pods 0
+  get_dependencies:
+    checkout: |
+      - payments: ready pods 2, error rate 0.1%
+      - catalog: ready pods 2, error rate 0.0%

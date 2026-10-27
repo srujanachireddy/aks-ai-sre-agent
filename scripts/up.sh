@@ -58,8 +58,14 @@ done
 # ---------------------------------------------------------------------------
 step "4/9  Checking the node size, vCPU quota and model availability"
 # Is this VM size offered to THIS subscription in this region? (Some subscriptions are restricted.)
-read -r FAMILY VCPUS RESTRICTED < <(az vm list-skus -l "$LOCATION" --size "$NODE_SIZE" --resource-type virtualMachines \
-  --query "[?name=='$NODE_SIZE'] | [0].[family, capabilities[?name=='vCPUs'].value | [0], length(restrictions)]" -o tsv) || true
+SKU="$(az vm list-skus -l "$LOCATION" --size "$NODE_SIZE" --resource-type virtualMachines \
+  --query "[?name=='$NODE_SIZE'] | [0]" -o json 2>/dev/null)"
+FAMILY="$(jq -r '.family // empty' <<<"${SKU:-null}")"
+RESTRICTED="$(jq -r '(.restrictions // []) | length' <<<"${SKU:-null}")"
+VCPUS="$(jq -r '[.capabilities[]? | select(.name == "vCPUs") | .value][0] // empty' <<<"${SKU:-null}")"
+# Fallback: the vCPU count is the number in the size name (Standard_B4s_v2 -> 4).
+[[ "$VCPUS" =~ ^[0-9]+$ ]] || VCPUS="$(sed -E 's/^Standard_[A-Za-z]+([0-9]+).*/\1/' <<<"$NODE_SIZE")"
+[[ "$VCPUS" =~ ^[0-9]+$ && "$VCPUS" -gt 0 ]] || VCPUS=4
 [[ -n "${FAMILY:-}" ]] || fail "VM size $NODE_SIZE does not exist in $LOCATION. Try NODE_SIZE=Standard_D4s_v5 ./scripts/up.sh"
 [[ "${RESTRICTED:-0}" == "0" ]] || fail "VM size $NODE_SIZE is not allowed for your subscription in $LOCATION. Re-run with another size, e.g. NODE_SIZE=Standard_D4s_v5 ./scripts/up.sh"
 ok "$NODE_SIZE is allowed ($VCPUS vCPUs, quota family $FAMILY)"

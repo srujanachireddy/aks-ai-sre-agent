@@ -61,7 +61,8 @@ step "4/9  Checking the node size, vCPU quota and model availability"
 SKU="$(az vm list-skus -l "$LOCATION" --size "$NODE_SIZE" --resource-type virtualMachines \
   --query "[?name=='$NODE_SIZE'] | [0]" -o json 2>/dev/null)"
 FAMILY="$(jq -r '.family // empty' <<<"${SKU:-null}")"
-RESTRICTED="$(jq -r '(.restrictions // []) | length' <<<"${SKU:-null}")"
+# Only a region-wide ("Location") restriction blocks us; "Zone" restrictions don't matter (we don't pin zones).
+RESTRICTED="$(jq -r '[.restrictions[]? | select(.type == "Location")] | length' <<<"${SKU:-null}")"
 VCPUS="$(jq -r '[.capabilities[]? | select(.name == "vCPUs") | .value][0] // empty' <<<"${SKU:-null}")"
 # Fallback: the vCPU count is the number in the size name (Standard_B4s_v2 -> 4).
 [[ "$VCPUS" =~ ^[0-9]+$ ]] || VCPUS="$(sed -E 's/^Standard_[A-Za-z]+([0-9]+).*/\1/' <<<"$NODE_SIZE")"

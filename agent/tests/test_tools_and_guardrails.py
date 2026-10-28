@@ -79,3 +79,34 @@ def test_memory_limits():
     assert check(diag(ProposedAction(type=ActionType.INCREASE_MEMORY, memory_limit_mi=512)), CURRENT, KNOWN).allowed
     assert not check(diag(ProposedAction(type=ActionType.INCREASE_MEMORY, memory_limit_mi=1024)), CURRENT, KNOWN).allowed
     assert not check(diag(ProposedAction(type=ActionType.INCREASE_MEMORY, memory_limit_mi=4096)), CURRENT, KNOWN, Policy()).allowed
+
+def test_live_backend_memory_limit():
+    from sre_agent.tools import LiveBackend
+
+    backend = LiveBackend(
+        prometheus_url="http://localhost:9090",
+        loki_url="http://localhost:3100",
+        namespace="shop"
+    )
+
+    # Simulate Prometheus returning a 256 MiB memory limit.
+    queries = []
+
+    def fake_scalar(query):
+        queries.append(query)
+
+        if 'resource="memory"' in query:
+            return 268435456  # 256 MiB in bytes
+
+        return 2
+
+    # Avoid making real Prometheus requests.
+    backend._scalar = fake_scalar
+    backend._trend = lambda query, minutes: "test data"
+
+    result = backend.get_service_metrics("catalog")
+
+    assert "configured memory limit: 256 MiB" in result
+    assert any('resource="memory"' in q for q in queries)
+
+    backend.http.close()

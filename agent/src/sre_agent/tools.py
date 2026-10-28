@@ -225,6 +225,30 @@ class LiveBackend:
         }
         for label, q in queries.items():
             lines.append(f"- {label}: {self._trend(q, minutes)}")
+            for label, q in queries.items():
+                lines.append(f"- {label}: {self._trend(q, minutes)}")
+
+        # Get the configured memory limit from Prometheus.
+        # Prometheus returns memory values in bytes.
+        memory_limit_bytes = self._scalar(
+            f'max(kube_pod_container_resource_limits{{'
+            f'namespace="{ns}", '
+            f'pod=~"{service}-.*", '
+            f'resource="memory"'
+            f'}})'
+        )
+
+        # Convert bytes into MiB.
+        if memory_limit_bytes is not None:
+            memory_limit_mi = memory_limit_bytes / (1024 * 1024)
+
+            lines.append(
+                f"- configured memory limit: {memory_limit_mi:.0f} MiB"
+            )
+        else:
+            lines.append("- configured memory limit: unavailable")
+
+        ready = self._scalar(self._ready_pods_query(service))
         ready = self._scalar(self._ready_pods_query(service))
         hpa_max = self._scalar(f'max(kube_horizontalpodautoscaler_spec_max_replicas{{namespace="{ns}", horizontalpodautoscaler="{service}"}})')
         lines.append(f"- replicas available: {ready if ready is not None else 'n/a'}, HPA max: {hpa_max if hpa_max is not None else 'no HPA'}")

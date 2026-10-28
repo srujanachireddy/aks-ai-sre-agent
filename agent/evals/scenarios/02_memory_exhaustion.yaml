@@ -20,6 +20,7 @@ responses:
       - p99 latency (s): 09:00 0.09 -> 09:15 0.85 -> 09:30 1.1
       - CPU used / limit: 09:00 0.22 -> 09:15 0.25 -> 09:30 0.24
       - memory used / limit: 09:00 0.81 -> 09:15 0.97 -> 09:30 0.99
+      - configured memory limit: 256 MiB
       - container restarts: 09:00 1 -> 09:15 4 -> 09:30 8
       - replicas available: 1, HPA max: no HPA
   get_recent_logs:

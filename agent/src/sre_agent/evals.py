@@ -59,6 +59,8 @@ class Score:
     action: str
     steps: int = 0
     tokens: int = 0
+    proposed_value: str = ""
+    guardrail_checks: str = ""
 
     @property
     def correct(self) -> bool:
@@ -67,15 +69,44 @@ class Score:
 
 def score(s: Scenario, d: Diagnosis, system: str, steps: int = 0, tokens: int = 0) -> Score:
     exp_action = s.expected["action"]
+
     action_ok = d.action.type.value == exp_action
+
     if action_ok and exp_action == ActionType.ROLLBACK.value:
         action_ok = d.action.target_image_tag == s.expected.get("target_image_tag")
+
     guard = check(d, s.current, s.known_tags())
-    # An action that guardrails would downgrade does not count as the system getting it right.
+
     guard_ok = guard.allowed or d.action.type == ActionType.ESCALATE
-    return Score(s.name, system, d.category.value == s.expected["category"], action_ok, guard_ok,
-                 d.category.value, d.action.type.value + (f" {d.action.target_image_tag}" if d.action.target_image_tag else ""),
-                 steps, tokens)
+
+    # Capture the exact proposed remediation
+    proposed_value = ""
+
+    if d.action.type == ActionType.INCREASE_MEMORY:
+        proposed_value = f"{d.action.memory_limit_mi} MiB"
+
+    elif d.action.type == ActionType.SCALE:
+        proposed_value = f"{d.action.replicas} replicas"
+
+    elif d.action.type == ActionType.ROLLBACK:
+        proposed_value = str(d.action.target_image_tag)
+
+    return Score(
+        scenario=s.name,
+        system=system,
+        category_ok=d.category.value == s.expected["category"],
+        action_ok=action_ok,
+        guardrails_ok=guard_ok,
+        category=d.category.value,
+        action=d.action.type.value + (
+            f" {d.action.target_image_tag}"
+            if d.action.target_image_tag else ""
+        ),
+        steps=steps,
+        tokens=tokens,
+        proposed_value=proposed_value,
+        guardrail_checks="; ".join(guard.checks),
+    )
 
 
 def run(scenario_dir: Path, use_agent: bool, runs: int) -> list[Score]:
@@ -102,6 +133,18 @@ def report(scores: list[Score]) -> str:
         lines.append(f"| {sc.scenario} | {sc.system} | {sc.category} {'✓' if sc.category_ok else '✗'} | "
                      f"{sc.action} {'✓' if sc.action_ok else '✗'} | {'**yes**' if sc.correct else 'no'} |")
     lines.append("")
+    lines.append("")
+    lines.append("### Remediation and guardrail details")
+    lines.append("")
+    lines.append("| Scenario | System | Proposed value | Guardrail result |")
+    lines.append("|---|---|---|---|")
+
+    for sc in scores:
+        checks = sc.guardrail_checks or "No checks recorded"
+        lines.append(
+            f"| {sc.scenario} | {sc.system} | "
+            f"{sc.proposed_value or '-'} | {checks} |"
+        )
     for system in sorted({sc.system for sc in scores}):
         mine = [sc for sc in scores if sc.system == system]
         correct = sum(sc.correct for sc in mine)

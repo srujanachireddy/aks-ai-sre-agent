@@ -79,3 +79,55 @@ def test_mcp_server_exposes_read_only_tools(scenarios):
     assert names == {"get_service_metrics", "get_recent_logs", "get_kubernetes_events", "get_deploy_history", "get_dependencies"}
     assert all(t.annotations and t.annotations.read_only_hint for t in tools)
     assert "payments: ready pods 0" in str(result)
+
+def test_hpa_alert_maps_to_correct_service(scenarios):
+    s = scenarios["capacity"]
+
+    submit = {
+        "category": "capacity",
+        "root_cause": "Checkout HPA requires investigation",
+        "confidence": 0.7,
+        "evidence": ["HPA checkout reached its configured maximum"],
+        "action": {
+            "type": "escalate",
+            "rationale": "Verify HPA metrics before scaling",
+        },
+    }
+
+    factory = lambda: ScriptedModel([
+        Turn(tool_calls=[
+            ToolCall("1", "submit_diagnosis", submit)
+        ])
+    ])
+
+    client = TestClient(
+        create_app(FixtureBackend(s.responses), factory, repo=None)
+    )
+
+    payload = {
+        "alerts": [{
+            "status": "firing",
+            "fingerprint": "hpa-checkout-test",
+            "labels": {
+                "alertname": "KubeHpaMaxedOut",
+                "service": "monitoring-kube-state-metrics",
+                "horizontalpodautoscaler": "checkout",
+                "namespace": "shop",
+            },
+            "annotations": {
+                "summary": "Checkout HPA reached maximum replicas"
+            },
+            "startsAt": "2026-11-02T17:22:45Z",
+        }]
+    }
+
+    response = client.post("/alertmanager", json=payload)
+
+    assert response.status_code == 200
+
+    accepted = response.json()["accepted"]
+    assert len(accepted) == 1
+
+    incident = client.get(f"/incidents/{accepted[0]}").json()
+
+    assert incident["alert"]["service"] == "checkout"

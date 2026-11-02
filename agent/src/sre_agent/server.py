@@ -117,7 +117,10 @@ def create_app(backend: ToolBackend, model_factory, repo: GitHubRepo | None) -> 
             if a.get("status") != "firing":
                 continue
             labels = a.get("labels", {})
-            service = labels.get("service") or labels.get("app") or labels.get("deployment")
+            if labels.get("alertname") == "KubeHpaMaxedOut":
+                 service = labels.get("horizontalpodautoscaler")
+            else:
+                service = labels.get("service") or labels.get("app") or labels.get("deployment")
             if not service:
                 continue
             fingerprint = a.get("fingerprint") or f"{labels.get('alertname')}:{service}"

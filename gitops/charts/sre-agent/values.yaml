@@ -1,6 +1,7 @@
 image:
   repository: ghcr.io/srujanachireddy/aks-ai-sre-agent/sre-agent
   tag: "0.1.0"
+  digest: "sha256:a73a2dce79e568b2f05c4b6f0a1810af17dc75408be3307b5ba62c26a31cc89b"
 
 # Filled in by scripts/up.sh from Terraform outputs (subscription-specific, not secret).
 azure:

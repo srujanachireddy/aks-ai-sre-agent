@@ -213,6 +213,9 @@ def test_live_backend_hpa_evidence():
         assert evidence["cpu_target_percent"] == 70
         assert evidence["scaling_active"] == "True"
         assert evidence["scaling_limited"] == "False"
+        collected_at = datetime.fromisoformat(evidence["collected_at"])
+        assert collected_at.tzinfo is not None
+        assert collected_at.utcoffset() is not None
     finally:
         backend.http.close()
 

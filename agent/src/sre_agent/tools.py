@@ -323,6 +323,7 @@ class LiveBackend:
             "cpu_target_percent": cpu_target,
             "scaling_active": conditions.get("ScalingActive"),
             "scaling_limited": conditions.get("ScalingLimited"),
+            "collected_at": datetime.now(timezone.utc).isoformat(),
         }
 
 

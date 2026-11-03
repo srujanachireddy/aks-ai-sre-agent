@@ -9,6 +9,7 @@ import yaml
 from sre_agent.guardrails import check
 from sre_agent.models import ActionType, Category, Diagnosis, ProposedAction
 from sre_agent.remediation import apply_action, current_settings, set_yaml_value
+from datetime import datetime, timezone
 
 APPS = Path(__file__).resolve().parents[2] / "gitops" / "apps"
 
@@ -22,7 +23,28 @@ def fix(service: str, action: ProposedAction, known_tags=("v1.3.2", "v1.4.0")) -
     before = (APPS / service / "values.yaml").read_text()
     current = current_settings(yaml.safe_load(before))
     d = Diagnosis(service=service, category=Category.BAD_DEPLOY, root_cause="x", confidence=0.9, action=action)
-    guard = check(d, current, set(known_tags))
+    hpa_evidence = None
+
+    if action.type == ActionType.SCALE:
+        hpa_evidence = {
+            "service": service,
+            "namespace": "shop",
+            "current_replicas": current["replicas"],
+            "desired_replicas": current["replicas"],
+            "max_replicas": current["replicas"],
+            "cpu_current_percent": 95,
+            "cpu_target_percent": 70,
+            "scaling_active": "True",
+            "scaling_limited": "True",
+            "collected_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    guard = check(
+        d,
+        current,
+        set(known_tags),
+        hpa_evidence=hpa_evidence,
+    )
     assert guard.allowed, guard.checks
     return before, apply_action(before, guard)
 

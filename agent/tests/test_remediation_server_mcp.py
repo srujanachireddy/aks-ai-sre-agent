@@ -11,6 +11,7 @@ from sre_agent.models import ActionType, Category, Diagnosis, ProposedAction
 from sre_agent.remediation import apply_action, current_settings
 from sre_agent.server import create_app
 from sre_agent.tools import FixtureBackend
+from datetime import datetime, timezone
 
 VALUES = """\
 image:
@@ -63,6 +64,95 @@ def test_webhook_investigates_and_renders_pr(scenarios):
     assert incident["dry_run_pr"]["title"].startswith("sre-agent: rollback checkout")
     assert "The agent cannot merge" in incident["dry_run_pr"]["body"]
     assert "sre_agent_investigations_total" in client.get("/metrics").text
+
+
+def test_hpa_alert_rejects_unsupported_scaling(scenarios, monkeypatch):
+    from sre_agent import server as server_module
+
+    scenario = scenarios["bad_deploy"]
+
+    # Use known GitOps values without accessing GitHub.
+    monkeypatch.setattr(
+        server_module.GitHubRepo,
+        "read_public",
+        lambda *args, **kwargs: VALUES,
+    )
+    monkeypatch.setenv("GITOPS_REPO", "test/repository")
+
+    responses = dict(scenario.responses)
+    responses["get_hpa_evidence"] = {
+        "checkout": {
+            "service": "checkout",
+            "namespace": "shop",
+            "current_replicas": 3,
+            "desired_replicas": 3,
+            "max_replicas": 3,
+            "cpu_current_percent": 62,
+            "cpu_target_percent": 70,
+            "scaling_active": "True",
+            "scaling_limited": "False",
+            "collected_at": datetime.now(timezone.utc).isoformat(),
+        }
+    }
+
+    submit = {
+        "category": "capacity",
+        "root_cause": "HPA reached maximum replicas",
+        "confidence": 0.9,
+        "evidence": ["HPA maximum replicas reached"],
+        "action": {
+            "type": "scale",
+            "replicas": 5,
+            "rationale": "Increase capacity",
+        },
+    }
+
+    factory = lambda: ScriptedModel([
+        Turn(tool_calls=[
+            ToolCall("1", "submit_diagnosis", submit)
+        ]),
+    ])
+
+    client = TestClient(
+        create_app(FixtureBackend(responses), factory, repo=None)
+    )
+
+    payload = {
+        "alerts": [{
+            "status": "firing",
+            "fingerprint": "hpa-guardrail-integration-001",
+            "labels": {
+                "alertname": "KubeHpaMaxedOut",
+                "service": "monitoring-kube-state-metrics",
+                "horizontalpodautoscaler": "checkout",
+                "namespace": "shop",
+            },
+            "annotations": {
+                "summary": "Synthetic checkout HPA alert"
+            },
+            "startsAt": "2026-11-02T19:00:00Z",
+        }]
+    }
+
+    response = client.post("/alertmanager", json=payload)
+    assert response.status_code == 200
+
+    accepted = response.json()["accepted"]
+    assert len(accepted) == 1
+
+    incident = client.get(f"/incidents/{accepted[0]}").json()
+
+    assert incident["status"] == "done"
+    assert incident["alert"]["service"] == "checkout"
+    assert incident["diagnosis"]["action"]["type"] == "scale"
+    assert incident["final_action"] == "escalate"
+    assert incident["pull_request"] is None
+
+    assert any(
+        "HPA is not currently scaling-limited" in check
+        for check in incident["guardrails"]
+    )
+
 
 
 def test_mcp_server_exposes_read_only_tools(scenarios):

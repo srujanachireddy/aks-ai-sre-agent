@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-
+from datetime import datetime, timezone, timedelta
 from .models import ActionType, Diagnosis, ProposedAction
 
 
@@ -32,7 +32,7 @@ class GuardrailResult:
 _TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]{0,127}$")
 
 
-def check(diagnosis: Diagnosis, current: dict, known_tags: set[str], policy: Policy = Policy()) -> GuardrailResult:
+def check(diagnosis: Diagnosis, current: dict, known_tags: set[str], policy: Policy = Policy(), hpa_evidence: dict | None = None,) -> GuardrailResult:
     """`current` holds the service's current GitOps values: image_tag, replicas, memory_limit_mi."""
     action = diagnosis.action
     checks: list[str] = []
@@ -67,13 +67,98 @@ def check(diagnosis: Diagnosis, current: dict, known_tags: set[str], policy: Pol
             return deny(f"rollback tag '{tag}' is already the running version")
         checks.append(f"PASS: '{tag}' is a previously deployed version")
 
+
     elif action.type == ActionType.SCALE:
         n = action.replicas or 0
+
         if not 1 <= n <= policy.max_replicas:
             return deny(f"replicas {n} outside 1..{policy.max_replicas}")
+
         if n <= current.get("replicas", 0):
-            return deny(f"scaling to {n} does not add capacity (currently {current.get('replicas')})")
-        checks.append(f"PASS: replicas {current.get('replicas')} -> {n} within limit {policy.max_replicas}")
+            return deny("proposed scaling does not increase capacity")
+
+        if not hpa_evidence:
+            return deny("HPA evidence unavailable")
+
+        if hpa_evidence.get("service") != diagnosis.service:
+            return deny("HPA evidence belongs to a different service")
+        if hpa_evidence.get("namespace") != "shop":
+            return deny("HPA evidence belongs to an unexpected namespace")
+
+        collected_at = hpa_evidence.get("collected_at")
+
+        if not isinstance(collected_at, str):
+            return deny("HPA evidence timestamp unavailable")
+
+        try:
+            collected_time = datetime.fromisoformat(collected_at)
+            if collected_time.tzinfo is None:
+                return deny("HPA evidence timestamp has no timezone")
+        except ValueError:
+            return deny("HPA evidence timestamp is invalid")
+
+        now = datetime.now(timezone.utc)
+        age = now - collected_time
+
+        if age < timedelta(0) or age > timedelta(minutes=2):
+            return deny("HPA evidence is stale or timestamp is in the future")
+
+        checks.append("PASS: HPA evidence is recent")
+
+
+        cpu = hpa_evidence.get("cpu_current_percent")
+        target = hpa_evidence.get("cpu_target_percent")
+
+        if cpu is None or target is None:
+            return deny("HPA CPU metrics unavailable")
+
+        if hpa_evidence.get("scaling_active") != "True":
+            return deny("HPA scaling metrics are not active")
+
+        if hpa_evidence.get("scaling_limited") != "True":
+            return deny("HPA is not currently scaling-limited")
+
+        if cpu <= target:
+            return deny("CPU utilization does not exceed HPA target")
+
+        current_replicas = hpa_evidence.get("current_replicas")
+        desired_replicas = hpa_evidence.get("desired_replicas")
+        max_replicas = hpa_evidence.get("max_replicas")
+
+        if not all(
+            type(value) is int and value >= 1
+            for value in (
+                current_replicas,
+                desired_replicas,
+                max_replicas,
+            )
+        ):
+            return deny("HPA replica evidence is missing or invalid")
+
+        if not (
+            current_replicas == desired_replicas == max_replicas
+        ):
+            return deny("HPA replica counts do not confirm maximum capacity")
+
+        if max_replicas != current.get("replicas"):
+            return deny("HPA maximum differs from current GitOps configuration")
+
+        if n <= max_replicas:
+            return deny("proposed HPA maximum does not increase capacity")
+
+        checks.append(
+            f"PASS: HPA at configured maximum of {max_replicas} replicas"
+        )
+
+
+        checks.append(
+            f"PASS: HPA CPU {cpu}% exceeds target {target}%"
+        )
+        checks.append(
+            f"PASS: replicas {current.get('replicas')} -> {n} "
+            f"within limit {policy.max_replicas}"
+        )
+
 
     elif action.type == ActionType.INCREASE_MEMORY:
         new, old = action.memory_limit_mi or 0, current.get("memory_limit_mi", 0)

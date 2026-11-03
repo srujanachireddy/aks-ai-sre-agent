@@ -106,6 +106,7 @@ class ToolBackend(Protocol):
     def get_kubernetes_events(self, namespace: str) -> str: ...
     def get_deploy_history(self, service: str) -> str: ...
     def get_dependencies(self, service: str) -> str: ...
+    def get_hpa_evidence(self, service: str) -> dict[str, Any] | None: ...
 
 
 def call_tool(backend: ToolBackend, name: str, arguments: dict[str, Any]) -> str:
@@ -150,6 +151,19 @@ class FixtureBackend:
 
     def get_dependencies(self, service: str) -> str:
         return self._get("get_dependencies", service)
+
+    def get_hpa_evidence(self, service: str) -> dict[str, Any] | None:
+        """Return structured HPA evidence from a test scenario."""
+        evidence = self._responses.get("get_hpa_evidence", {})
+        if not isinstance(evidence, dict):
+            return None
+
+        result = evidence.get(service)
+        if not isinstance(result, dict):
+            return None
+
+        return result.copy()
+
 
 
 # --------------------------------------------------------------------------- live cluster
@@ -272,6 +286,45 @@ class LiveBackend:
             return f"No error-level logs for {service} in the last {minutes} minutes."
         top = sorted(seen.items(), key=lambda kv: -kv[1])[:20]
         return "\n".join(f"[x{count}] {line}" for line, count in top)
+
+
+    def get_hpa_evidence(self, service: str) -> dict[str, object]:
+        """Retrieve structured HPA evidence without modifying Kubernetes."""
+        api = self._kube().AutoscalingV2Api()
+        hpa = api.read_namespaced_horizontal_pod_autoscaler(
+            name=service,
+            namespace=self.namespace,
+        )
+
+        cpu_target = None
+        for metric in hpa.spec.metrics or []:
+            if metric.type == "Resource" and metric.resource.name == "cpu":
+                cpu_target = metric.resource.target.average_utilization
+                break
+
+        cpu_current = None
+        for metric in hpa.status.current_metrics or []:
+            if metric.type == "Resource" and metric.resource.name == "cpu":
+                cpu_current = metric.resource.current.average_utilization
+                break
+
+        conditions = {
+            condition.type: condition.status
+            for condition in hpa.status.conditions or []
+        }
+
+        return {
+            "service": service,
+            "namespace": self.namespace,
+            "current_replicas": hpa.status.current_replicas,
+            "desired_replicas": hpa.status.desired_replicas,
+            "max_replicas": hpa.spec.max_replicas,
+            "cpu_current_percent": cpu_current,
+            "cpu_target_percent": cpu_target,
+            "scaling_active": conditions.get("ScalingActive"),
+            "scaling_limited": conditions.get("ScalingLimited"),
+        }
+
 
     def get_kubernetes_events(self, namespace: str) -> str:
         v1 = self._kube().CoreV1Api()

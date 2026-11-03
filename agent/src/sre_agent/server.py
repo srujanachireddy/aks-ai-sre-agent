@@ -85,7 +85,26 @@ def create_app(backend: ToolBackend, model_factory, repo: GitHubRepo | None) -> 
                 text, sha = "", ""
             current = current_settings(_safe_yaml(text))
             known = _known_tags(backend, d.service)
-            guard = check(d, current, known)
+
+            hpa_evidence = None
+
+            if d.action.type == ActionType.SCALE:
+                try:
+                    hpa_evidence = backend.get_hpa_evidence(d.service)
+                except Exception as exc:
+                    log.warning(
+                        "Unable to retrieve HPA evidence for %s: %s",
+                        d.service,
+                        exc,
+                    )
+
+            guard = check(
+                d,
+                current,
+                known,
+                hpa_evidence=hpa_evidence,
+            )
+
             guard_checks, final_action = guard.checks, guard.action.type.value
             body = pr_body(inv, guard)
             if guard.allowed and guard.action.type != ActionType.ESCALATE:

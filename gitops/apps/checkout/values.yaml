@@ -1,6 +1,6 @@
 # checkout: takes orders, calls catalog for prices and payments to charge.
 image:
-  tag: v1.3.2
+  tag: v1.4.0
 autoscaling:
   enabled: true
   minReplicas: 2
@@ -17,4 +17,4 @@ env:
   PAYMENTS_URL: http://payments.shop.svc:8080
   CATALOG_URL: http://catalog.shop.svc:8080
 canary:
-  analysis: true
+  analysis: false
